@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>НЕ ОБОРАЧИВАЙСЯ (DON'T TURN AROUND) - Horror 3D</title>
+    <!-- Tailwind CSS for UI Overlay -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        #game-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Screen Grain & Vignette Effect */
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.85);
+            z-index: 10;
+        }
+
+        .blood-vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 120px rgba(180, 0, 0, 0);
+            transition: box-shadow 0.3s ease;
+            z-index: 11;
+        }
+
+        /* Crosshair */
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background-color: rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(0,0,0,0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 20;
+            transition: transform 0.1s, background-color 0.1s;
+        }
+
+        #crosshair.interact {
+            background-color: #f59e0b;
+            transform: translate(-50%, -50%) scale(1.8);
+        }
+
+        /* Mobile Touch Controls */
+        .touch-control {
+            display: none;
+        }
+
+        @media (pointer: coarse), (max-width: 1024px) {
+            .touch-control {
+                display: flex;
+            }
+        }
+
+        .joystick-base {
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .joystick-stick {
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            position: absolute;
+            top: 35px;
+            left: 35px;
+        }
+
+        /* Custom Scrollbar for Notes */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.5);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(180, 100, 50, 0.8);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-black text-white select-none">
+
+    <!-- Render Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Post Processing Overlays -->
+    <div class="vignette"></div>
+    <div id="blood-vignette" class="blood-vignette"></div>
+
+    <!-- Interactive Crosshair -->
+    <div id="crosshair"></div>
+
+    <!-- HUD Overlay -->
+    <div id="hud" class="fixed top-4 left-4 right-4 flex justify-between items-start pointer-events-none z-20">
+        <!-- Battery Meter -->
+        <div class="bg-black/60 border border-neutral-700 backdrop-blur p-3 rounded-lg flex items-center space-x-3">
+            <svg id="battery-icon" class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            <div>
+                <div class="text-xs text-neutral-400 uppercase tracking-widest font-bold">ФОНАРЬ (F / R)</div>
+                <div class="w-28 bg-neutral-800 h-2.5 rounded-full overflow-hidden mt-1 border border-neutral-700">
+                    <div id="battery-bar" class="bg-amber-500 h-full w-full transition-all duration-300"></div>
+                </div>
+            </div>
+            <span id="battery-count" class="text-xs font-mono font-bold bg-amber-500/20 text-amber-400 px-2 py-1 rounded border border-amber-500/30">x3</span>
+        </div>
+
+        <!-- Objective Indicator -->
+        <div class="bg-black/60 border border-neutral-700 backdrop-blur p-3 rounded-lg max-w-xs text-right">
+            <div class="text-xs text-red-500 uppercase tracking-widest font-bold">ЦЕЛЬ</div>
+            <div id="objective-text" class="text-xs text-neutral-300 font-sans mt-0.5">Найдите ключи от выхода из корпуса Чаткал-7</div>
+        </div>
+    </div>
+
+    <!-- Interactive Prompts (Center Bottom) -->
+    <div id="interaction-prompt" class="fixed bottom-24 left-1/2 -translate-x-1/2 bg-neutral-900/90 text-amber-400 border border-amber-500/40 px-4 py-2 rounded-lg text-sm font-mono backdrop-blur pointer-events-none hidden z-20 shadow-lg">
+        [E] Читать записку
+    </div>
+
+    <!-- START GAME MODAL OVERLAY -->
+    <div id="start-screen" class="fixed inset-0 bg-neutral-950/95 z-50 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md">
+        <div class="max-w-lg w-full bg-neutral-900 border border-neutral-800 p-8 rounded-2xl shadow-2xl space-y-6">
+            <div>
+                <h1 class="text-3xl font-extrabold tracking-wider text-red-600 uppercase font-serif">НЕ ОБОРАЧИВАЙСЯ</h1>
+                <p class="text-xs text-neutral-500 mt-1 uppercase tracking-widest">Заброшенная школа Чаткал-7 • Кыргызстан</p>
+            </div>
+
+            <p class="text-sm text-neutral-300 leading-relaxed font-sans text-left bg-black/40 p-4 rounded-xl border border-neutral-800">
+                Вы оказались заперты в заброшенной горной школе. В коридорах блуждает Наблюдатель. 
+                Он реагирует на звук шагов и свет фонаря. Найдите **3 ключа**, чтобы открыть выход.
+            </p>
+
+            <div class="text-xs text-neutral-400 bg-neutral-950 p-4 rounded-xl text-left border border-neutral-800 space-y-2">
+                <div class="font-bold text-amber-500 uppercase tracking-wider mb-1">Управление:</div>
+                <div class="flex justify-between"><span>Перемещение:</span> <span class="text-white font-mono">WASD / Джойстик</span></div>
+                <div class="flex justify-between"><span>Обзор:</span> <span class="text-white font-mono">Мышь / Тач по экрану</span></div>
+                <div class="flex justify-between"><span>Фонарь / Батарейка:</span> <span class="text-white font-mono">F / R</span></div>
+                <div class="flex justify-between"><span>Действие / Записка:</span> <span class="text-white font-mono">E</span></div>
+                <div class="flex justify-between"><span>Бег:</span> <span class="text-white font-mono">Shift</span></div>
+            </div>
+
+            <button id="start-btn" class="w-full py-4 bg-red-700 hover:bg-red-600 text-white font-bold tracking-widest rounded-xl transition duration-200 transform active:scale-95 shadow-lg shadow-red-900/40 uppercase">
+                НАЧАТЬ ИГРУ
+            </button>
+        </div>
+    </div>
+
+    <!-- NOTE READING MODAL OVERLAY -->
+    <div id="note-modal" class="fixed inset-0 bg-black/80 z-40 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-amber-100/90 text-neutral-900 max-w-md w-full p-6 rounded-lg border-2 border-amber-800 shadow-2xl relative font-serif">
+            <h2 id="note-title" class="text-xl font-bold border-b border-amber-900/30 pb-2 mb-3 text-amber-950">Записка</h2>
+            <div id="note-body" class="text-sm leading-relaxed space-y-2 text-neutral-800 max-h-60 overflow-y-auto custom-scroll pr-2">
+                <!-- Dynamic Content -->
+            </div>
+            <button id="close-note-btn" class="mt-6 w-full py-2 bg-amber-900 hover:bg-amber-800 text-amber-100 font-bold rounded font-sans text-xs tracking-widest uppercase transition">
+                ЗАКРЫТЬ [E / Нажать]
+            </button>
+        </div>
+    </div>
+
+    <!-- GAME OVER / VICTORY OVERLAY -->
+    <div id="end-modal" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col items-center justify-center p-6 text-center">
+        <h2 id="end-title" class="text-4xl font-extrabold text-red-600 mb-2 font-serif uppercase">ВЫ ПОГИБЛИ</h2>
+        <p id="end-desc" class="text-neutral-400 max-w-md text-sm mb-6 font-sans">Наблюдатель настиг вас в темноте...</p>
+        <button id="restart-btn" class="px-8 py-3 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded-xl tracking-wider font-mono text-sm uppercase transition">
+            ПОПРОБОВАТЬ СНОВА
+        </button>
+    </div>
+
+    <!-- MOBILE TOUCH CONTROLS OVERLAY -->
+    <div id="mobile-controls" class="touch-control fixed inset-0 pointer-events-none z-30 flex justify-between items-end p-6 select-none">
+        <!-- Virtual Joystick Area (Left Side) -->
+        <div id="joystick-container" class="pointer-events-auto">
+            <div class="joystick-base" id="joystick-base">
+                <div class="joystick-stick" id="joystick-stick"></div>
+            </div>
+        </div>
+
+        <!-- Touch Buttons (Right Side) -->
+        <div class="pointer-events-auto flex flex-col space-y-3 items-end">
+            <button id="btn-touch-action" class="w-14 h-14 bg-amber-600/80 active:bg-amber-500 text-white rounded-full flex items-center justify-center shadow-lg border border-amber-400/50 backdrop-blur">
+                <span class="text-xs font-bold">ВЗАИМ</span>
+            </button>
+            <div class="flex space-x-3">
+                <button id="btn-touch-flashlight" class="w-12 h-12 bg-neutral-800/80 active:bg-neutral-700 text-white rounded-full flex items-center justify-center shadow border border-neutral-600">
+                    🔦
+                </button>
+                <button id="btn-touch-reload" class="w-12 h-12 bg-neutral-800/80 active:bg-neutral-700 text-white rounded-full flex items-center justify-center shadow border border-neutral-600">
+                    🔋
+                </button>
+                <button id="btn-touch-sprint" class="w-12 h-12 bg-neutral-800/80 active:bg-red-700 text-white rounded-full flex items-center justify-center shadow border border-neutral-600">
+                    🏃
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME LOGIC SCRIPT -->
+    <script>
+        // ==========================================
+        // AUDIO SYNTHESIS (Procedural Web Audio API)
+        // ==========================================
+        class AudioController {
+            constructor() {
+                this.ctx = null;
+                this.isMuted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioCtx();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            playFootstep(isSprinting) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const filter = this.ctx.createBiquadFilter();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(isSprinting ? 120 : 80, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.12);
+
+                filter.type = 'lowpass';
+                filter.frequency.value = 300;
+
+                gain.gain.setValueAtTime(isSprinting ? 0.3 : 0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.12);
+            }
+
+            playClick() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.05);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.05);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.05);
+            }
+
+            playHeartbeat(intensity = 1.0) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.2);
+
+                gain.gain.setValueAtTime(0.4 * intensity, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            }
+
+            playGrowl() {
+                if (!this.ctx) return;
+                const bufferSize = this.ctx.sampleRate * 1.5;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(150, this.ctx.currentTime);
+                filter.Q.value = 5.0;
+
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.5);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                noise.start();
+            }
+
+            playKeyPickup() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, this.ctx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, this.ctx.currentTime + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, this.ctx.currentTime + 0.2); // G5
+
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.4);
+            }
+        }
+
+        const audio = new AudioController();
+
+        // ==========================================
+        // GAME STATE & CONSTANTS
+        // ==========================================
+        const STATE = {
+            isPlaying: false,
+            keysCollected: 0,
+            totalKeys: 3,
+            battery: 100,
+            batteryCount: 2,
+            flashlightOn: true,
+            isSprinting: false,
+            isNoteOpen: false,
+            nearestInteractable: null
+        };
+
+        // Player Parameters
+        const PLAYER = {
+            radius: 0.6,
+            height: 1.8,
+            pos: new THREE.Vector3(0, 1.8, 12),
+            vel: new THREE.Vector3(),
+            yaw: 0,
+            pitch: 0,
+            walkSpeed: 4.0,
+            sprintSpeed: 7.5,
+            footstepTimer: 0
+        };
+
+        // Wall & Obstacle Colliders Array
+        const colliders = [];
+        const interactables = [];
+
+        // Input Tracking
+        const keysPressed = {};
+        const touchState = {
+            joystickActive: false,
+            moveVector: new THREE.Vector2(0, 0),
+            lastTouchX: 0,
+            lastTouchY: 0,
+            isSwiping: false
+        };
+
+        // ==========================================
+        // THREE.JS SETUP & SCENE BUILD
+        // ==========================================
+        const canvas = document.getElementById('game-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020204);
+        scene.fog = new THREE.FogExp2(0x020204, 0.08);
+
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.copy(PLAYER.pos);
+
+        // Flashlight Light Source
+        const flashlight = new THREE.SpotLight(0xfffaed, 2.5, 22, Math.PI / 6, 0.4, 1.5);
+        flashlight.castShadow = true;
+        flashlight.shadow.mapSize.width = 1024;
+        flashlight.shadow.mapSize.height = 1024;
+        flashlight.shadow.camera.near = 0.2;
+        flashlight.shadow.camera.far = 25;
+        scene.add(flashlight);
+        scene.add(flashlight.target);
+
+        // Ambient Dim Horror Lighting
+        const ambientLight = new THREE.AmbientLight(0x080812, 0.4);
+        scene.add(ambientLight);
+
+        // Ambient Red Alarm Spotlights in Corridor
+        const redLight = new THREE.PointLight(0x990000, 0.5, 12);
+        redLight.position.set(0, 3.5, 0);
+        scene.add(redLight);
+
+        // Procedural Textures (Canvas Generated)
+        function createWallTexture() {
+            const cvs = document.createElement('canvas');
+            cvs.width = 256; cvs.height = 256;
+            const ctx = cvs.getContext('2d');
+            ctx.fillStyle = '#1e1f22';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillStyle = '#141517';
+            for (let i = 0; i < 400; i++) {
+                ctx.fillRect(Math.random()*256, Math.random()*256, Math.random()*4, Math.random()*4);
+            }
+            // Green Soviet lower wall strip
+            ctx.fillStyle = '#1a3328';
+            ctx.fillRect(0, 160, 256, 96);
+            const tex = new THREE.CanvasTexture(cvs);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createFloorTexture() {
+            const cvs = document.createElement('canvas');
+            cvs.width = 256; cvs.height = 256;
+            const ctx = cvs.getContext('2d');
+            ctx.fillStyle = '#221c18';
+            ctx.fillRect(0,0,256,256);
+            ctx.strokeStyle = '#0f0c0a';
+            ctx.lineWidth = 4;
+            for(let i=0; i<=256; i+=64) {
+                ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke();
+            }
+            const tex = new THREE.CanvasTexture(cvs);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        const wallTex = createWallTexture();
+        const floorTex = createFloorTexture();
+
+        const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.8 });
+        const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.6 });
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.9 });
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.3 });
+
+        // Helper: Create Wall Box with Collision
+        function createWall(x, y, z, w, h, d, mat = wallMat) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.receiveShadow = true;
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            // Add bounding box collider
+            const box = new THREE.Box3().setFromObject(mesh);
+            colliders.push(box);
+            return mesh;
+        }
+
+        // Build Level: Soviet Mountain School Corridor & Rooms
+        function buildLevel() {
+            // Main Floor
+            const floorGeo = new THREE.PlaneGeometry(30, 40);
+            floorTex.repeat.set(10, 15);
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Ceiling
+            const ceilGeo = new THREE.PlaneGeometry(30, 40);
+            const ceil = new THREE.Mesh(ceilGeo, new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.9 }));
+            ceil.rotation.x = Math.PI / 2;
+            ceil.position.y = 4;
+            scene.add(ceil);
+
+            // Outer Perimeter Walls
+            createWall(0, 2, -20, 30, 4, 0.5); // Far North Wall
+            createWall(0, 2, 20, 30, 4, 0.5);  // South Wall
+            createWall(-15, 2, 0, 0.5, 4, 40); // West Wall
+            createWall(15, 2, 0, 0.5, 4, 40);  // East Wall
+
+            // Inner Corridors and Classrooms
+            // Main Hallway runs along Z axis (-15 to 15), X: -3 to +3
+            createWall(-7, 2, 5, 8, 4, 0.4);
+            createWall(7, 2, 5, 8, 4, 0.4);
+            createWall(-7, 2, -5, 8, 4, 0.4);
+            createWall(7, 2, -5, 8, 4, 0.4);
+
+            // Room Partitions
+            createWall(-7, 2, -12, 0.4, 4, 14);
+            createWall(7, 2, -12, 0.4, 4, 14);
+            createWall(-7, 2, 12, 0.4, 4, 14);
+            createWall(7, 2, 12, 0.4, 4, 14);
+
+            // Furniture / Props (Classroom Tables / Lockers)
+            createFurniture(-10, 0.6, -10, 2, 1.2, 1);
+            createFurniture(-11, 0.6, -14, 2, 1.2, 1);
+            createFurniture(10, 0.6, -10, 2, 1.2, 1);
+            createFurniture(11, 0.6, -14, 2, 1.2, 1);
+            createFurniture(-10, 0.6, 10, 2, 1.2, 1);
+
+            // Locked Main Exit Gate
+            const exitGateGeo = new THREE.BoxGeometry(5, 3.5, 0.2);
+            const exitGate = new THREE.Mesh(exitGateGeo, metalMat);
+            exitGate.position.set(0, 1.75, 19.5);
+            scene.add(exitGate);
+            colliders.push(new THREE.Box3().setFromObject(exitGate));
+
+            interactables.push({
+                mesh: exitGate,
+                type: 'EXIT',
+                prompt: 'Открыть Главный Выход (Требуется 3 Ключа)',
+                action: () => tryOpenExit()
+            });
+
+            // Spawn Keys & Notes
+            spawnKey(-11, 0.8, -12, 'Ключ №1 (Класс математики)');
+            spawnKey(11, 0.8, -12, 'Ключ №2 (Кабинет директора)');
+            spawnKey(-11, 0.8, 12, 'Ключ №3 (Учительская)');
+
+            spawnBattery(3, 0.5, 0);
+            spawnBattery(-12, 0.5, -8);
+
+            spawnNote(0, 1.0, 10, "Записка у входа", "Чаткал-7 закрыли на карантин в 1986. Если вы читаете это — не включайте лишний раз свет. Оно слышит бег и ищет батарейки. Ключи от главного выхода спрятаны в трёх классах.");
+            spawnNote(-10, 1.0, -10, "Дневник учителя", "Оно ходит за спиной. Когда вы оборачиваетесь — оно замирает. Не дайте ему подойти слишком близко. Соберите 3 ключа!");
+        }
+
+        function createFurniture(x, y, z, w, h, d) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x2b1c14, roughness: 0.9 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            colliders.push(new THREE.Box3().setFromObject(mesh));
+        }
+
+        function spawnKey(x, y, z, name) {
+            const geo = new THREE.TorusGeometry(0.12, 0.04, 8, 16);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.9, roughness: 0.2, emissive: 0x332000 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            interactables.push({
+                mesh: mesh,
+                type: 'KEY',
+                prompt: `Забрать ${name}`,
+                action: (item) => {
+                    STATE.keysCollected++;
+                    audio.playKeyPickup();
+                    removeInteractable(item);
+                    updateObjective();
+                }
+            });
+        }
+
+        function spawnBattery(x, y, z) {
+            const geo = new THREE.CylinderGeometry(0.08, 0.08, 0.25, 12);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.5, roughness: 0.4 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            interactables.push({
+                mesh: mesh,
+                type: 'BATTERY',
+                prompt: 'Забрать Батарейку',
+                action: (item) => {
+                    STATE.batteryCount++;
+                    document.getElementById('battery-count').innerText = `x${STATE.batteryCount}`;
+                    audio.playClick();
+                    removeInteractable(item);
+                }
+            });
+        }
+
+        function spawnNote(x, y, z, title, text) {
+            const geo = new THREE.PlaneGeometry(0.4, 0.5);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xfef3c7, side: THREE.DoubleSide });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.rotation.x = -Math.PI / 2;
+            scene.add(mesh);
+
+            interactables.push({
+                mesh: mesh,
+                type: 'NOTE',
+                prompt: `Читать: "${title}"`,
+                action: () => {
+                    openNote(title, text);
+                }
+            });
+        }
+
+        function removeInteractable(item) {
+            scene.remove(item.mesh);
+            const idx = interactables.indexOf(item);
+            if (idx !== -1) interactables.splice(idx, 1);
+        }
+
+        function updateObjective() {
+            const el = document.getElementById('objective-text');
+            el.innerText = `Собрано ключей: ${STATE.keysCollected} / ${STATE.totalKeys}. Идите к выходу!`;
+        }
+
+        // ==========================================
+        // MONSTER AI ("THE OBSERVER")
+        // ==========================================
+        class MonsterAI {
+            constructor() {
+                // Creature Mesh
+                const group = new THREE.Group();
+                const bodyGeo = new THREE.CylinderGeometry(0.35, 0.2, 2.4, 12);
+                const bodyMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                body.position.y = 1.2;
+                group.add(body);
+
+                // Glowing Red Eyes
+                const eyeGeo = new THREE.SphereGeometry(0.05, 8, 8);
+                const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+                leftEye.position.set(-0.12, 2.1, 0.3);
+                const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+                rightEye.position.set(0.12, 2.1, 0.3);
+                group.add(leftEye);
+                group.add(rightEye);
+
+                group.position.set(0, 0, -15);
+                scene.add(group);
+
+                this.mesh = group;
+                this.speed = 2.2;
+                this.state = 'STALK'; // STALK, CHASE, FROZEN
+                this.soundTimer = 0;
+            }
+
+            update(delta) {
+                if (!STATE.isPlaying) return;
+
+                const toPlayer = new THREE.Vector3().subVectors(PLAYER.pos, this.mesh.position);
+                toPlayer.y = 0; // Move horizontally
+                const dist = toPlayer.length();
+
+                // Check if Player is directly looking at Monster
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                camDir.y = 0; camDir.normalize();
+
+                const monsterDir = toPlayer.clone().normalize();
+                const dot = camDir.dot(monsterDir); // If dot < -0.5, player is looking towards monster
+
+                // Raycast check to see if vision is clear
+                let isVisibleToPlayer = false;
+                if (dot < -0.4 && dist < 18) {
+                    isVisibleToPlayer = true;
+                }
+
+                // AI Logic
+                if (isVisibleToPlayer && STATE.flashlightOn && dist > 2.5) {
+                    // Monster freezes when looked directly with light!
+                    this.state = 'FROZEN';
+                } else {
+                    this.state = 'CHASE';
+                }
+
+                if (this.state === 'CHASE') {
+                    let moveSpeed = this.speed;
+                    if (STATE.isSprinting) moveSpeed *= 1.4;
+
+                    monsterDir.multiplyScalar(moveSpeed * delta);
+                    this.mesh.position.add(monsterDir);
+                    this.mesh.lookAt(PLAYER.pos.x, this.mesh.position.y, PLAYER.pos.z);
+
+                    // Growl sounds
+                    this.soundTimer += delta;
+                    if (this.soundTimer > 4.0 && dist < 12) {
+                        audio.playGrowl();
+                        this.soundTimer = 0;
+                    }
+                }
+
+                // Heartbeat dynamic feedback
+                if (dist < 10) {
+                    const bloodVig = document.getElementById('blood-vignette');
+                    const intensity = Math.max(0, (10 - dist) / 10);
+                    bloodVig.style.boxShadow = `inset 0 0 ${100 * intensity}px rgba(180, 0, 0, ${0.7 * intensity})`;
+                }
+
+                // Kill condition
+                if (dist < 1.2) {
+                    triggerGameOver(false);
+                }
+            }
+        }
+
+        let monster;
+
+        // ==========================================
+        // ROBUST PLAYER MOVEMENT & COLLISION ENGINE
+        // ==========================================
+        function updatePlayerMovement(delta) {
+            if (!STATE.isPlaying || STATE.isNoteOpen) return;
+
+            // 1. Calculate Horizontal Camera Angles (Yaw)
+            const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), PLAYER.yaw);
+            const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), PLAYER.yaw);
+
+            forward.y = 0; forward.normalize();
+            right.y = 0; right.normalize();
+
+            // 2. Compute Input Vector (Keyboard + Mobile Joystick)
+            let moveX = 0; // Strafe (Right/Left)
+            let moveZ = 0; // Forward/Back
+
+            if (keysPressed['KeyW'] || keysPressed['ArrowUp']) moveZ += 1;
+            if (keysPressed['KeyS'] || keysPressed['ArrowDown']) moveZ -= 1;
+            if (keysPressed['KeyA'] || keysPressed['ArrowLeft']) moveX -= 1;
+            if (keysPressed['KeyD'] || keysPressed['ArrowRight']) moveX += 1;
+
+            // Add Mobile Virtual Joystick input
+            if (touchState.joystickActive) {
+                moveX += touchState.moveVector.x;
+                moveZ -= touchState.moveVector.y; // Invert Y for correct forward drive
+            }
+
+            // Normalize diagonal movement
+            const inputLen = Math.sqrt(moveX * moveX + moveZ * moveZ);
+            if (inputLen > 1) {
+                moveX /= inputLen;
+                moveZ /= inputLen;
+            }
+
+            // Sprinting Check
+            STATE.isSprinting = (keysPressed['ShiftLeft'] || keysPressed['ShiftRight'] || touchState.isSprinting) && moveZ > 0;
+            const currentSpeed = STATE.isSprinting ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
+
+            // 3. Compute Intended Displacement Vector
+            const moveDir = new THREE.Vector3();
+            moveDir.addScaledVector(forward, moveZ);
+            moveDir.addScaledVector(right, moveX);
+            moveDir.multiplyScalar(currentSpeed * delta);
+
+            // 4. Smooth Collision Resolution (Axis Sliding)
+            const targetPos = PLAYER.pos.clone();
+
+            // Try X Movement with Collision Sliding
+            targetPos.x += moveDir.x;
+            if (!checkPlayerCollision(targetPos)) {
+                PLAYER.pos.x = targetPos.x;
+            } else {
+                targetPos.x = PLAYER.pos.x; // Block X
+            }
+
+            // Try Z Movement with Collision Sliding
+            targetPos.z += moveDir.z;
+            if (!checkPlayerCollision(targetPos)) {
+                PLAYER.pos.z = targetPos.z;
+            } else {
+                targetPos.z = PLAYER.pos.z; // Block Z
+            }
+
+            // Update Camera Position
+            camera.position.copy(PLAYER.pos);
+            camera.rotation.set(0, 0, 0);
+            camera.rotation.y = PLAYER.yaw;
+            camera.rotation.x = PLAYER.pitch;
+
+            // Flashlight Following Camera Target Smoothly
+            flashlight.position.copy(camera.position);
+            const flashTargetPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10));
+            flashlight.target.position.copy(flashTargetPos);
+
+            // Footstep Sound Loop
+            if (inputLen > 0.1) {
+                PLAYER.footstepTimer += delta * (STATE.isSprinting ? 2.2 : 1.4);
+                if (PLAYER.footstepTimer > 1.0) {
+                    audio.playFootstep(STATE.isSprinting);
+                    PLAYER.footstepTimer = 0;
+                }
+            }
+        }
+
+        // Check AABB Box Collision with Player Bounding Capsule/Cylinder
+        function checkPlayerCollision(pos) {
+            const playerMinX = pos.x - PLAYER.radius;
+            const playerMaxX = pos.x + PLAYER.radius;
+            const playerMinZ = pos.z - PLAYER.radius;
+            const playerMaxZ = pos.z + PLAYER.radius;
+
+            for (let i = 0; i < colliders.length; i++) {
+                const box = colliders[i];
+                if (
+                    playerMaxX > box.min.x && playerMinX < box.max.x &&
+                    playerMaxZ > box.min.z && playerMinZ < box.max.z
+                ) {
+                    return true; // Collision detected
+                }
+            }
+            return false;
+        }
+
+        // ==========================================
+        // RAYCASTING & INTERACTION SYSTEM
+        // ==========================================
+        const raycaster = new THREE.Raycaster();
+        const centerPoint = new THREE.Vector2(0, 0);
+
+        function updateRaycast() {
+            if (!STATE.isPlaying || STATE.isNoteOpen) return;
+
+            raycaster.setFromCamera(centerPoint, camera);
+            const interactMeshes = interactables.map(i => i.mesh);
+            const intersects = raycaster.intersectObjects(interactMeshes);
+
+            const promptEl = document.getElementById('interaction-prompt');
+            const crosshair = document.getElementById('crosshair');
+
+            if (intersects.length > 0 && intersects[0].distance < 3.5) {
+                const hitMesh = intersects[0].object;
+                const item = interactables.find(i => i.mesh === hitMesh);
+
+                if (item) {
+                    STATE.nearestInteractable = item;
+                    promptEl.innerText = `[E / Тач] ${item.prompt}`;
+                    promptEl.classList.remove('hidden');
+                    crosshair.classList.add('interact');
+                    return;
+                }
+            }
+
+            STATE.nearestInteractable = null;
+            promptEl.classList.add('hidden');
+            crosshair.classList.remove('interact');
+        }
+
+        function triggerInteraction() {
+            if (STATE.nearestInteractable) {
+                STATE.nearestInteractable.action(STATE.nearestInteractable);
+            }
+        }
+
+        // ==========================================
+        // FLASHLIGHT & BATTERY MECHANICS
+        // ==========================================
+        function updateFlashlight(delta) {
+            if (!STATE.isPlaying) return;
+
+            if (STATE.flashlightOn) {
+                STATE.battery -= delta * 1.8; // Drain rate
+                if (STATE.battery <= 0) {
+                    STATE.battery = 0;
+                    STATE.flashlightOn = false;
+                    flashlight.intensity = 0;
+                } else {
+                    // Slight flicker effect on low battery
+                    if (STATE.battery < 20 && Math.random() < 0.1) {
+                        flashlight.intensity = Math.random() * 0.8;
+                    } else {
+                        flashlight.intensity = 2.5;
+                    }
+                }
+            } else {
+                flashlight.intensity = 0;
+            }
+
+            document.getElementById('battery-bar').style.width = `${STATE.battery}%`;
+        }
+
+        function reloadBattery() {
+            if (STATE.batteryCount > 0 && STATE.battery < 90) {
+                STATE.batteryCount--;
+                STATE.battery = 100;
+                STATE.flashlightOn = true;
+                document.getElementById('battery-count').innerText = `x${STATE.batteryCount}`;
+                audio.playClick();
+            }
+        }
+
+        function toggleFlashlight() {
+            if (STATE.battery > 0) {
+                STATE.flashlightOn = !STATE.flashlightOn;
+                audio.playClick();
+            }
+        }
+
+        function tryOpenExit() {
+            if (STATE.keysCollected >= STATE.totalKeys) {
+                triggerGameOver(true);
+            } else {
+                const promptEl = document.getElementById('interaction-prompt');
+                promptEl.innerText = `Нужно ещё ${STATE.totalKeys - STATE.keysCollected} ключа!`;
+                promptEl.classList.remove('hidden');
+            }
+        }
+
+        // ==========================================
+        // NOTE MODAL CONTROLS
+        // ==========================================
+        function openNote(title, text) {
+            STATE.isNoteOpen = true;
+            document.getElementById('note-title').innerText = title;
+            document.getElementById('note-body').innerText = text;
+            document.getElementById('note-modal').classList.remove('hidden');
+            if (document.pointerLockElement) document.exitPointerLock();
+        }
+
+        function closeNote() {
+            STATE.isNoteOpen = false;
+            document.getElementById('note-modal').classList.add('hidden');
+        }
+
+        document.getElementById('close-note-btn').addEventListener('click', closeNote);
+
+        // ==========================================
+        // GAME OVER / RESTART SYSTEM
+        // ==========================================
+        function triggerGameOver(isWin) {
+            STATE.isPlaying = false;
+            if (document.pointerLockElement) document.exitPointerLock();
+
+            const endModal = document.getElementById('end-modal');
+            const endTitle = document.getElementById('end-title');
+            const endDesc = document.getElementById('end-desc');
+
+            if (isWin) {
+                endTitle.innerText = "ВЫ СПАСЛИСЬ!";
+                endTitle.className = "text-4xl font-extrabold text-emerald-500 mb-2 font-serif uppercase";
+                endDesc.innerText = "Вам удалось выбраться из заброшенной школы Чаткал-7 живым.";
+            } else {
+                endTitle.innerText = "ВЫ ПОГИБЛИ";
+                endTitle.className = "text-4xl font-extrabold text-red-600 mb-2 font-serif uppercase";
+                endDesc.innerText = "Наблюдатель настиг вас в темноте коридора...";
+            }
+
+            endModal.classList.remove('hidden');
+        }
+
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            window.location.reload();
+        });
+
+        // ==========================================
+        // INPUT LISTENERS (PC & MOBILE)
+        // ==========================================
+        // Mouse Look (PC PointerLock)
+        window.addEventListener('mousemove', (e) => {
+            if (!STATE.isPlaying || STATE.isNoteOpen) return;
+            if (document.pointerLockElement === document.body) {
+                const sensitivity = 0.0022;
+                PLAYER.yaw -= e.movementX * sensitivity;
+                PLAYER.pitch -= e.movementY * sensitivity;
+                PLAYER.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, PLAYER.pitch));
+            }
+        });
+
+        // Keyboard Controls
+        window.addEventListener('keydown', (e) => {
+            keysPressed[e.code] = true;
+
+            if (e.code === 'KeyF') toggleFlashlight();
+            if (e.code === 'KeyR') reloadBattery();
+            if (e.code === 'KeyE') {
+                if (STATE.isNoteOpen) closeNote();
+                else triggerInteraction();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keysPressed[e.code] = false;
+        });
+
+        // Mobile Touch Controls Implementation
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickStick = document.getElementById('joystick-stick');
+
+        joystickBase.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchState.joystickActive = true;
+            updateJoystick(e.touches[0]);
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!STATE.isPlaying) return;
+
+            for (let i = 0; i < e.touches.length; i++) {
+                const t = e.touches[i];
+
+                // If touch is on joystick base
+                if (touchState.joystickActive && t.target.closest('#joystick-container')) {
+                    updateJoystick(t);
+                } 
+                // Right side camera swipe
+                else if (t.clientX > window.innerWidth / 2) {
+                    if (touchState.isSwiping) {
+                        const dx = t.clientX - touchState.lastTouchX;
+                        const dy = t.clientY - touchState.lastTouchY;
+                        const sensitivity = 0.004;
+
+                        PLAYER.yaw -= dx * sensitivity;
+                        PLAYER.pitch -= dy * sensitivity;
+                        PLAYER.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, PLAYER.pitch));
+                    }
+                    touchState.lastTouchX = t.clientX;
+                    touchState.lastTouchY = t.clientY;
+                    touchState.isSwiping = true;
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0) {
+                touchState.joystickActive = false;
+                touchState.isSwiping = false;
+                touchState.moveVector.set(0, 0);
+                joystickStick.style.transform = `translate(0px, 0px)`;
+            }
+        });
+
+        function updateJoystick(touch) {
+            const rect = joystickBase.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            const maxRadius = 45;
+
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > maxRadius) {
+                dx = (dx / dist) * maxRadius;
+                dy = (dy / dist) * maxRadius;
+            }
+
+            joystickStick.style.transform = `translate(${dx}px, ${dy}px)`;
+            touchState.moveVector.set(dx / maxRadius, dy / maxRadius);
+        }
+
+        // Mobile Buttons
+        document.getElementById('btn-touch-action').addEventListener('click', triggerInteraction);
+        document.getElementById('btn-touch-flashlight').addEventListener('click', toggleFlashlight);
+        document.getElementById('btn-touch-reload').addEventListener('click', reloadBattery);
+        
+        const sprintBtn = document.getElementById('btn-touch-sprint');
+        sprintBtn.addEventListener('touchstart', () => { touchState.isSprinting = true; });
+        sprintBtn.addEventListener('touchend', () => { touchState.isSprinting = false; });
+
+        // ==========================================
+        // GAME INITIALIZATION & MAIN LOOP
+        // ==========================================
+        document.getElementById('start-btn').addEventListener('click', () => {
+            audio.init();
+            STATE.isPlaying = true;
+            document.getElementById('start-screen').classList.add('hidden');
+
+            // Request PointerLock on desktop devices
+            if (window.innerWidth > 1024) {
+                document.body.requestPointerLock();
+            }
+        });
+
+        // Click to re-acquire PointerLock on desktop
+        document.addEventListener('click', (e) => {
+            if (STATE.isPlaying && !STATE.isNoteOpen && window.innerWidth > 1024) {
+                if (document.pointerLockElement !== document.body) {
+                    document.body.requestPointerLock();
+                }
+            }
+        });
+
+        // Build Level Scene & Spawn Monster
+        buildLevel();
+        monster = new MonsterAI();
+
+        // Main Animation Loop
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = Math.min(clock.getDelta(), 0.1); // Cap delta to prevent frame lag glitches
+
+            if (STATE.isPlaying) {
+                updatePlayerMovement(delta);
+                updateRaycast();
+                updateFlashlight(delta);
+                monster.update(delta);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Window Resize Handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop once window is ready
+        window.onload = () => {
+            animate();
+        };
+    </script>
+</body>
+</html>
